@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
+	"nyctaxi/backend/internal/cache"
 	"nyctaxi/backend/internal/mlclient"
 	"nyctaxi/backend/internal/models"
 	"nyctaxi/backend/internal/repositories"
@@ -18,11 +20,16 @@ type Handler struct {
 	ml    *mlclient.Client
 	trips repositories.TripRepository
 	pool  *workers.Pool
+	cache *cache.PredictionCache
+	redis *cache.Client
 	log   *slog.Logger
+
+	cacheHits   int64 // atomic
+	cacheMisses int64 // atomic
 }
 
-func New(ml *mlclient.Client, trips repositories.TripRepository, pool *workers.Pool, log *slog.Logger) *Handler {
-	return &Handler{ml: ml, trips: trips, pool: pool, log: log}
+func New(ml *mlclient.Client, trips repositories.TripRepository, pool *workers.Pool, predictionCache *cache.PredictionCache, redis *cache.Client, log *slog.Logger) *Handler {
+	return &Handler{ml: ml, trips: trips, pool: pool, cache: predictionCache, redis: redis, log: log}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -38,17 +45,20 @@ func writeError(w http.ResponseWriter, status int, msg string, detail string) {
 // GET /health
 func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 	mlUp := h.ml.HealthCheck(r.Context())
+	redisUp := h.redis.Ping(r.Context()) == nil
 	writeJSON(w, http.StatusOK, models.HealthResponse{
 		Status:       "ok",
 		MLServiceUp:  mlUp,
+		RedisUp:      redisUp,
 		TimestampUTC: time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
 // POST /api/v1/predict
 //
-// Flow: validate -> enqueue into the worker pool -> block on this job's
-// own result channel until a worker finishes (or the client disconnects).
+// Flow: validate -> check Redis cache -> (hit: return immediately) ->
+// (miss: enqueue into the worker pool) -> block on this job's own result
+// channel until a worker finishes -> cache the result -> respond.
 // The worker pool bounds how many concurrent calls hit the Python service
 // to exactly PREDICTION_WORKERS, regardless of how many HTTP requests
 // arrive at once; a full queue fails fast with 503 instead of queueing
@@ -64,6 +74,14 @@ func (h *Handler) Predict(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation failed", err.Error())
 		return
 	}
+
+	if cached, hit := h.cache.Get(r.Context(), req); hit {
+		atomic.AddInt64(&h.cacheHits, 1)
+		cached.CacheHit = true
+		writeJSON(w, http.StatusOK, cached)
+		return
+	}
+	atomic.AddInt64(&h.cacheMisses, 1)
 
 	resultCh := make(chan workers.JobResult, 1)
 	job := workers.PredictionJob{
@@ -87,6 +105,12 @@ func (h *Handler) Predict(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadGateway, "prediction failed", result.Err.Error())
 			return
 		}
+		result.Response.CacheHit = false
+		if err := h.cache.Set(r.Context(), req, result.Response); err != nil {
+			// a failed cache write must never fail the request itself —
+			// log it and move on, the next identical request just misses too.
+			h.log.Warn("predict: failed to write cache entry", "error", err)
+		}
 		writeJSON(w, http.StatusOK, result.Response)
 	case <-r.Context().Done():
 		// client disconnected or request timed out while queued/processing;
@@ -97,7 +121,23 @@ func (h *Handler) Predict(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/system/status
 func (h *Handler) SystemStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.pool.Stats())
+	poolStats := h.pool.Stats()
+	hits := atomic.LoadInt64(&h.cacheHits)
+	misses := atomic.LoadInt64(&h.cacheMisses)
+	total := hits + misses
+	hitRate := 0.0
+	if total > 0 {
+		hitRate = float64(hits) / float64(total)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"queue_length":   poolStats.QueueLength,
+		"queue_capacity": poolStats.QueueCapacity,
+		"busy_workers":   poolStats.BusyWorkers,
+		"cache_hits":     hits,
+		"cache_misses":   misses,
+		"cache_hit_rate": hitRate,
+	})
 }
 
 func validatePredictionRequest(req models.PredictionRequest) error {
