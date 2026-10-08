@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+env/
+ml-service/venv/
+ml-service/.venv/
+
+# Large datasets
+ml-service/data/train.csv
+ml-service/data/test.csv
+
+# Model files / generated artifacts
+*.pkl
+*.joblib
+*.h5
+*.keras
+
+# Environment variables / secrets
+.env
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

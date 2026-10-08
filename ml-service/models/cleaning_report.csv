@@ -1,0 +1,6 @@
+filter,before,after,removed,pct_removed
+drop_duplicate_ids,1458644,1458644,0,0.0
+passenger_count_1_to_6,1458644,1458579,65,0.004
+nyc_bounding_box,1458579,1453305,5274,0.362
+trip_duration_30s_to_6h,1453305,1446730,6575,0.452
+zero_distance_long_duration,1446730,1442616,4114,0.284

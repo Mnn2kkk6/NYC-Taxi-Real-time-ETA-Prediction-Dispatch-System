@@ -1,0 +1,76 @@
+{
+  "title": "NYC Taxi ETA — Dispatch Console",
+  "uid": "nyc-taxi-dispatch",
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requests / sec",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(http_requests_total[1m]))", "legendFormat": "req/s" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "p50 / p95 / p99 prediction latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, rate(prediction_latency_seconds_bucket[2m]))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, rate(prediction_latency_seconds_bucket[2m]))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, rate(prediction_latency_seconds_bucket[2m]))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "title": "Error rate (5xx + prediction errors)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(http_requests_total{status=~\"5..\"}[1m]))", "legendFormat": "HTTP 5xx/s" },
+        { "expr": "rate(prediction_errors_total[1m])", "legendFormat": "prediction errors/s" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Queue length / busy workers",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "queue_length", "legendFormat": "queue length" },
+        { "expr": "worker_busy", "legendFormat": "busy workers" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Cache hit rate",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 8, "y": 8 },
+      "targets": [
+        { "expr": "sum(cache_hits_total) / (sum(cache_hits_total) + sum(cache_misses_total))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "title": "Active trips",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 4, "x": 12, "y": 8 },
+      "targets": [{ "expr": "active_trips" }]
+    },
+    {
+      "id": 7,
+      "title": "Prediction requests (hit vs miss)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "targets": [
+        { "expr": "rate(prediction_requests_total[1m])", "legendFormat": "{{cache}}" }
+      ]
+    }
+  ]
+}
