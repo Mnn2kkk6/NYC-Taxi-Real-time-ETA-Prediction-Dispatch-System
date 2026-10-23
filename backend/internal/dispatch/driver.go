@@ -7,6 +7,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -28,6 +29,22 @@ type Driver struct {
 	Longitude float64 `json:"longitude"`
 	Status    Status  `json:"status"`
 }
+
+// Store is the common driver-fleet interface used by HTTP handlers.
+type Store interface {
+	List(ctx context.Context) ([]*Driver, error)
+	FindNearestAvailable(ctx context.Context, lat, lon float64) (*Driver, float64, error)
+	SetStatus(ctx context.Context, driverID string, status Status) error
+}
+
+// TripAssigner is implemented by the PostgreSQL repository. It claims a
+// driver and updates the trip row in one transaction, preventing concurrent
+// requests from assigning the same AVAILABLE driver.
+type TripAssigner interface {
+	AssignTrip(ctx context.Context, tripID string, pickupLat, pickupLng float64) (*Driver, float64, error)
+}
+
+var ErrNoAvailableDrivers = errors.New("no available drivers")
 
 // Repository is goroutine-safe (sync.RWMutex — reads, i.e. listing and
 // nearest-driver search, are far more frequent than writes, so readers
@@ -59,14 +76,15 @@ func (r *Repository) Seed(positions []Driver) {
 	}
 }
 
-func (r *Repository) List(ctx context.Context) []*Driver {
+func (r *Repository) List(ctx context.Context) ([]*Driver, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]*Driver, 0, len(r.drivers))
 	for _, d := range r.drivers {
-		out = append(out, d)
+		copy := *d
+		out = append(out, &copy)
 	}
-	return out
+	return out, nil
 }
 
 // FindNearestAvailable scans all AVAILABLE drivers and returns the one
@@ -85,13 +103,14 @@ func (r *Repository) FindNearestAvailable(ctx context.Context, lat, lon float64)
 			continue
 		}
 		dist := geo.HaversineKm(lat, lon, d.Latitude, d.Longitude)
-		if nearest == nil || dist < nearestDist {
-			nearest = d
+		if nearest == nil || dist < nearestDist || (dist == nearestDist && d.ID < nearest.ID) {
+			copy := *d
+			nearest = &copy
 			nearestDist = dist
 		}
 	}
 	if nearest == nil {
-		return nil, 0, fmt.Errorf("no available drivers")
+		return nil, 0, ErrNoAvailableDrivers
 	}
 	return nearest, nearestDist, nil
 }

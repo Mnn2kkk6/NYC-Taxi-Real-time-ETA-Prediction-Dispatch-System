@@ -63,7 +63,10 @@ func TestSetStatus_UpdatesDriver(t *testing.T) {
 		t.Fatalf("SetStatus failed: %v", err)
 	}
 
-	drivers := repo.List(context.Background())
+	drivers, err := repo.List(context.Background())
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
 	if len(drivers) != 1 || drivers[0].Status != Busy {
 		t.Errorf("expected driver d1 to be BUSY, got %+v", drivers)
 	}
@@ -80,7 +83,10 @@ func TestSeed_AssignsIDsWhenMissing(t *testing.T) {
 	repo := NewRepository()
 	repo.Seed([]Driver{{Latitude: 40.76, Longitude: -73.98}}) // no ID given
 
-	drivers := repo.List(context.Background())
+	drivers, err := repo.List(context.Background())
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
 	if len(drivers) != 1 {
 		t.Fatalf("expected 1 driver, got %d", len(drivers))
 	}

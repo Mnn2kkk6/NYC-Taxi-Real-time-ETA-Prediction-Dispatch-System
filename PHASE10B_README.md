@@ -40,4 +40,4 @@ docker compose exec postgres psql -U nyctaxi -d nyctaxi -c "SELECT id,status,dri
 ```
 
 ## Scope and known limitation
-Trip persistence is durable, but the simulated driver fleet and its AVAILABLE/BUSY statuses are still in memory. This phase persists the trip's assigned driver identifier and lifecycle status together; it does not yet make the driver fleet durable or implement a transactional, database-backed dispatch fleet. The current startup seeds simulated drivers, so their IDs can change after a backend restart even though historical trip records remain intact. A later extension could move drivers and dispatch assignment into PostgreSQL transactions.
+At the end of Phase 10b, trip persistence was durable but the simulated driver fleet and its AVAILABLE/BUSY statuses still lived in memory. Phase 10c supersedes that limitation by persisting driver rows and assigning a driver plus the trip status in one PostgreSQL transaction; see `PHASE10C_README.md` for the migration and validation steps.

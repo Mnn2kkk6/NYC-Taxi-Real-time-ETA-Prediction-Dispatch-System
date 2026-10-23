@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -25,7 +26,7 @@ type Handler struct {
 	cache    *cache.PredictionCache
 	redis    *cache.Client
 	hub      *wsserver.Hub
-	drivers  *dispatch.Repository
+	drivers  dispatch.Store
 	log      *slog.Logger
 	syncMode bool
 }
@@ -37,7 +38,7 @@ func New(
 	predictionCache *cache.PredictionCache,
 	redis *cache.Client,
 	hub *wsserver.Hub,
-	drivers *dispatch.Repository,
+	drivers dispatch.Store,
 	syncMode bool,
 	log *slog.Logger,
 ) *Handler {
@@ -249,8 +250,8 @@ func errInvalid(msg string) error        { return &validationError{msg} }
 // AVAILABLE driver (spec §19 — straight-line haversine distance, no
 // route optimization). If a driver is found, it's marked BUSY and the
 // trip's DriverID is set and status moves to DISPATCHED; if no driver is
-// available, the trip stays PENDING — this is not a hard failure, the
-// simulator or a later retry can dispatch it once a driver frees up.
+// available, the trip stays PENDING rather than failing creation. A
+// retry/re-dispatch workflow is outside this phase's API scope.
 func (h *Handler) CreateTrip(w http.ResponseWriter, r *http.Request) {
 	var req models.CreateTripRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -274,13 +275,29 @@ func (h *Handler) CreateTrip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if driver, distKm, err := h.drivers.FindNearestAvailable(r.Context(), trip.PickupLat, trip.PickupLng); err == nil {
+	if atomicDispatcher, ok := h.drivers.(dispatch.TripAssigner); ok {
+		// Production PostgreSQL assignment updates the driver and trip rows
+		// in one transaction, with a conditional AVAILABLE -> BUSY update.
+		driver, distKm, err := atomicDispatcher.AssignTrip(r.Context(), trip.ID, trip.PickupLat, trip.PickupLng)
+		if err != nil {
+			if errors.Is(err, dispatch.ErrNoAvailableDrivers) {
+				h.log.Info("dispatch: no available driver, trip stays pending", "trip_id", trip.ID)
+			} else {
+				h.log.Error("dispatch: atomic assignment failed; trip stays pending", "trip_id", trip.ID, "error", err)
+			}
+		} else {
+			driverID := driver.ID
+			trip.DriverID = &driverID
+			trip.Status = models.TripDispatched
+			h.log.Info("dispatch: assigned nearest driver transactionally", "trip_id", trip.ID, "driver_id", driver.ID, "distance_km", distKm)
+		}
+	} else if driver, distKm, err := h.drivers.FindNearestAvailable(r.Context(), trip.PickupLat, trip.PickupLng); err == nil {
+		// The in-memory repository remains available to isolated unit tests.
 		if err := h.drivers.SetStatus(r.Context(), driver.ID, dispatch.Busy); err == nil {
 			driverID := driver.ID
 			trip.DriverID = &driverID
 			trip.Status = models.TripDispatched
 			if err := h.trips.UpdateDispatch(r.Context(), trip.ID, &driverID, models.TripDispatched); err != nil {
-				// Do not report a dispatched trip unless its assignment was persisted.
 				_ = h.drivers.SetStatus(r.Context(), driver.ID, dispatch.Available)
 				trip.DriverID = nil
 				trip.Status = models.TripPending
@@ -330,7 +347,12 @@ func (h *Handler) ListTrips(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/v1/drivers
 func (h *Handler) Drivers(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.drivers.List(r.Context()))
+	drivers, err := h.drivers.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list drivers", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, drivers)
 }
 
 // GET /ws
