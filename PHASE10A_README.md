@@ -1,6 +1,6 @@
 # Phase 10a — Docker Compose Integration
 
-This phase wires the existing services together without changing trip persistence. Trips still live in the Go process's in-memory repository; PostgreSQL is intentionally deferred to Phase 10b.
+Phase 10a established Docker Compose service integration. Phase 10b now adds PostgreSQL persistence; see `PHASE10B_README.md` for database configuration, migration, and restart-persistence tests.
 
 ## Services
 
@@ -88,7 +88,7 @@ The simulator reads **/data/train.csv** in its container and sends trip requests
 
 ## Known limitation for this phase
 
-**Trip records are not durable yet.** The Go backend still uses **MemoryTripRepository**, so restarting the backend clears trips. Redis, Prometheus and Grafana use named volumes. PostgreSQL integration, persistent trip records, and consistent persistence of **driver_id** with dispatch status belong to Phase 10b.
+Trip persistence is handled by PostgreSQL in Phase 10b. Redis, Prometheus, Grafana, and PostgreSQL use named volumes. See `PHASE10B_README.md` for the current database behavior and validation steps.
 
 ## Stop / cleanup
 
