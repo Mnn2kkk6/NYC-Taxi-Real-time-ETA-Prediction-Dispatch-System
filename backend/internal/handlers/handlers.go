@@ -250,8 +250,8 @@ func errInvalid(msg string) error        { return &validationError{msg} }
 // AVAILABLE driver (spec §19 — straight-line haversine distance, no
 // route optimization). If a driver is found, it's marked BUSY and the
 // trip's DriverID is set and status moves to DISPATCHED; if no driver is
-// available, the trip stays PENDING — this is not a hard failure, the
-// simulator or a later retry can dispatch it once a driver frees up.
+// available, the trip stays PENDING rather than failing creation. A
+// retry/re-dispatch workflow is outside this phase's API scope.
 func (h *Handler) CreateTrip(w http.ResponseWriter, r *http.Request) {
 	var req models.CreateTripRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
