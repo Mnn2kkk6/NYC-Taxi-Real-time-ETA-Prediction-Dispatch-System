@@ -48,12 +48,29 @@ func main() {
 	ml := mlclient.New(cfg.MLServiceURL, cfg.MLServiceTimeout, cfg.MLServiceRetries)
 	startupCtx, startupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	tripRepo, err := repositories.NewPostgresTripRepository(startupCtx, cfg.DatabaseURL)
-	startupCancel()
 	if err != nil {
+		startupCancel()
 		logger.Error("failed to initialize PostgreSQL trip repository", "error", err)
 		os.Exit(1)
 	}
+
+	driverRepo, err := dispatch.NewPostgresRepository(startupCtx, cfg.DatabaseURL)
+	if err != nil {
+		startupCancel()
+		tripRepo.Close()
+		logger.Error("failed to initialize PostgreSQL driver repository", "error", err)
+		os.Exit(1)
+	}
+	if err := driverRepo.SeedIfEmpty(startupCtx, seedDrivers(cfg.DriverCount)); err != nil {
+		startupCancel()
+		driverRepo.Close()
+		tripRepo.Close()
+		logger.Error("failed to initialize persistent driver fleet", "error", err)
+		os.Exit(1)
+	}
+	startupCancel()
 	defer tripRepo.Close()
+	defer driverRepo.Close()
 
 	redisClient := cache.New(cfg.RedisAddr, cfg.RedisPoolSize)
 	predictionCache := cache.NewPredictionCache(redisClient, cfg.CacheTTLSeconds)
@@ -71,9 +88,7 @@ func main() {
 
 	hub := wsserver.NewHub(logger)
 
-	driverRepo := dispatch.NewRepository()
-	driverRepo.Seed(seedDrivers(cfg.DriverCount))
-	logger.Info("seeded simulated drivers", "count", cfg.DriverCount)
+	logger.Info("persistent driver fleet ready", "configured_seed_count", cfg.DriverCount)
 
 	h := handlers.New(ml, tripRepo, pool, predictionCache, redisClient, hub, driverRepo, cfg.SyncMode, logger)
 
