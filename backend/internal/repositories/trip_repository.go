@@ -25,6 +25,7 @@ type TripRepository interface {
 	GetByID(ctx context.Context, id string) (*models.Trip, error)
 	List(ctx context.Context, status string, limit, offset int) ([]*models.Trip, error)
 	UpdateStatus(ctx context.Context, id string, status models.TripStatus) error
+	UpdateDispatch(ctx context.Context, id string, driverID *string, status models.TripStatus) error
 	// ActiveCount returns how many trips are currently PENDING or
 	// DISPATCHED — backs the active_trips gauge (spec §21).
 	ActiveCount(ctx context.Context) int
@@ -112,4 +113,15 @@ func (r *MemoryTripRepository) ActiveCount(ctx context.Context) int {
 		}
 	}
 	return count
+}
+
+// UpdateDispatch keeps the assigned driver and lifecycle status consistent in the in-memory implementation.
+func (r *MemoryTripRepository) UpdateDispatch(ctx context.Context, id string, driverID *string, status models.TripStatus) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.trips[id]
+	if !ok { return fmt.Errorf("trip %s not found", id) }
+	t.DriverID = driverID
+	t.Status = status
+	return nil
 }

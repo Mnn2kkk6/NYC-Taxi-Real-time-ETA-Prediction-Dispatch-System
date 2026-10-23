@@ -279,8 +279,15 @@ func (h *Handler) CreateTrip(w http.ResponseWriter, r *http.Request) {
 			driverID := driver.ID
 			trip.DriverID = &driverID
 			trip.Status = models.TripDispatched
-			_ = h.trips.UpdateStatus(r.Context(), trip.ID, models.TripDispatched)
-			h.log.Info("dispatch: assigned nearest driver", "trip_id", trip.ID, "driver_id", driver.ID, "distance_km", distKm)
+			if err := h.trips.UpdateDispatch(r.Context(), trip.ID, &driverID, models.TripDispatched); err != nil {
+				// Do not report a dispatched trip unless its assignment was persisted.
+				_ = h.drivers.SetStatus(r.Context(), driver.ID, dispatch.Available)
+				trip.DriverID = nil
+				trip.Status = models.TripPending
+				h.log.Error("dispatch: failed to persist trip assignment", "trip_id", trip.ID, "error", err)
+			} else {
+				h.log.Info("dispatch: assigned nearest driver", "trip_id", trip.ID, "driver_id", driver.ID, "distance_km", distKm)
+			}
 		}
 	} else {
 		h.log.Info("dispatch: no available driver, trip stays pending", "trip_id", trip.ID)

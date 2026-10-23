@@ -46,10 +46,14 @@ func main() {
 	)
 
 	ml := mlclient.New(cfg.MLServiceURL, cfg.MLServiceTimeout, cfg.MLServiceRetries)
-	tripRepo := repositories.NewMemoryTripRepository()
-	// NOTE: swap NewMemoryTripRepository() for a Postgres-backed
-	// implementation (see internal/repositories/postgres_trip_repository.go)
-	// once `go mod tidy` has fetched pgx on a machine with internet access.
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	tripRepo, err := repositories.NewPostgresTripRepository(startupCtx, cfg.DatabaseURL)
+	startupCancel()
+	if err != nil {
+		logger.Error("failed to initialize PostgreSQL trip repository", "error", err)
+		os.Exit(1)
+	}
+	defer tripRepo.Close()
 
 	redisClient := cache.New(cfg.RedisAddr, cfg.RedisPoolSize)
 	predictionCache := cache.NewPredictionCache(redisClient, cfg.CacheTTLSeconds)
