@@ -99,6 +99,6 @@ If you changed `POSTGRES_USER` or `POSTGRES_DB` in your `.env`, substitute those
 
 ## Validation status and limitations
 
-This change is committed to a feature branch for review. Docker builds, Go tests, migration application, and concurrency tests have **not** been run in this authoring environment; run the commands above on the Windows/Docker machine before merging.
+Phase 10c has been merged into main through [PR #3](https://github.com/Mnn2kkk6/NYC-Taxi-Real-time-ETA-Prediction-Dispatch-System/pull/3). The project owner reported that the Docker stack started successfully and local smoke checks passed on Windows. Docker builds and tests were not executed in the assistant's authoring environment; the commands above remain useful for repeatable verification and regression checks.
 
 The current project exposes trip creation and driver listing, but does not yet expose trip-completion/cancellation endpoints that return a BUSY driver to AVAILABLE. The repository can update status, but the full lifecycle/release workflow is a future phase.
