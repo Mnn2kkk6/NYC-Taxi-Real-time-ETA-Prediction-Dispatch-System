@@ -88,7 +88,7 @@ func main() {
 
 	hub := wsserver.NewHub(logger)
 
-	logger.Info("persistent driver fleet ready", "configured_seed_count", cfg.DriverCount)
+	logger.Info("persistent driver fleet ready", "configured_initial_seed_count", cfg.DriverCount)
 
 	h := handlers.New(ml, tripRepo, pool, predictionCache, redisClient, hub, driverRepo, cfg.SyncMode, logger)
 
