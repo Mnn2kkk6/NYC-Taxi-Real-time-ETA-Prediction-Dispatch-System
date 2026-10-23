@@ -99,17 +99,39 @@ Reading this honestly:
   That's why req/s reads "2093" and requests-attempted reads 12558 in
   6s: the load tester's goroutines aren't blocked waiting on a
   struggling backend, they're getting fast, explicit "no" answers and
-  immediately trying again. The 374 requests that *did* get processed
-  had **p50 = 40ms, 27x better than sync's 1090ms** — and **zero 502s**:
-  ml-service was never pushed past what it can actually handle.
+  immediately trying again. The pool run recorded **zero 502s** from
+  ml-service, versus 69 in sync mode.
+  **Do not compare the 40ms p50 with sync's 1090ms**: 12184 of the 12558
+  requests (97%) were instant 503 refusals, so that percentile mostly
+  measures how fast the server says no. The latency of the 374 requests
+  that were actually served was not recorded separately in this run (an
+  earlier version of this README claimed they were "27x faster" — that
+  claim was wrong, see the correction below).
 
 **This is the whole interview answer for "why Go, why a worker pool":**
 not higher throughput under light load (there isn't one — the downstream
 service is the bottleneck either way), but *controlled degradation* under
 real overload. Sync mode fails unpredictably and slowly (mystery 502s,
 multi-second tails). The worker pool fails fast, explicitly, and
-protects the thing behind it — and the requests that do succeed stay
-fast throughout.
+protects the thing behind it. Whether the requests that do succeed are
+faster than in sync mode is **not established** by the runs above.
+
+### Correction (found while re-running on a second machine)
+
+The load tester originally mixed every response's latency into one set
+of percentiles. Under overload that is misleading, because a 503
+refusal returns in microseconds and drags p50/p95 down. A run of the
+worker pool at concurrency 150 on a Windows machine showed this
+directly: 326 requests served, 5855 refused with 503, and the server log
+shows the served requests taking about 2.4 seconds each (they waited in
+the queue behind 10 workers) — while the table's p50 read 26ms. So under
+overload the pool does not make served requests fast; it makes the
+failure explicit and bounded (503 instead of 502 and unbounded waits,
+latency capped by queue depth divided by service rate). `tools/loadtest`
+now reports latency percentiles for successful (2xx) requests only, and
+counts rejected (503/429), failed, and goodput (ok/s) in separate
+columns. The sync-vs-pool table must be regenerated with that version
+before any latency comparison is quoted.
 
 ## A methodology note, said plainly
 
