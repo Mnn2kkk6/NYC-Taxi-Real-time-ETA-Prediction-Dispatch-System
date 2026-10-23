@@ -19,9 +19,9 @@ The project combines a Python machine-learning API, a Go backend, a React dashbo
 | 9 | Load-testing tool and sync-vs-worker-pool mode | Completed |
 | 10A | Docker Compose orchestration | Completed |
 | 10B | PostgreSQL trip persistence | Completed |
-| 10C | Persistent driver fleet and atomic dispatch | Implemented; local startup/smoke checks reported successful, PR review pending |
+| 10C | Persistent driver fleet and atomic dispatch | Merged; owner reports local startup/smoke checks successful |
 
-Phase 10C is being developed in [PR #3](https://github.com/Mnn2kkk6/NYC-Taxi-Real-time-ETA-Prediction-Dispatch-System/pull/3). Review and merge the PR before treating the changes as part of the default main branch.
+Phase 10C was merged into the default main branch via [PR #3](https://github.com/Mnn2kkk6/NYC-Taxi-Real-time-ETA-Prediction-Dispatch-System/pull/3). The project owner reported that the local Docker stack and smoke checks succeeded on Windows.
 
 ## What it does
 
