@@ -1,4 +1,8 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
+// In production the app is served by Nginx and API calls stay same-origin.
+// In Vite development mode, default to the Go server running on localhost:8080.
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ??
+  (import.meta.env.DEV ? "http://localhost:8080" : "");
 
 async function request(path, options = {}) {
   let res;
@@ -8,8 +12,8 @@ async function request(path, options = {}) {
       ...options,
     });
   } catch {
-    // fetch only rejects on network-level failure (server down, wrong URL, blocked)
-    throw new Error(`Can't reach the backend at ${API_BASE}. Is the Go server running?`);
+    const target = API_BASE || window.location.origin;
+    throw new Error(`Can't reach the backend at ${target}. Is the API available?`);
   }
   const body = await res.json().catch(() => null);
   if (!res.ok) {
@@ -39,7 +43,7 @@ export const api = {
     return request(`/api/v1/trips${qs ? `?${qs}` : ""}`);
   },
 
-  getTrip: (id) => request(`/api/v1/trips/${id}`),
+  getTrip: (id) => request(`/api/v1/trips/${encodeURIComponent(id)}`),
 
   listDrivers: () => request("/api/v1/drivers"),
 
@@ -47,9 +51,13 @@ export const api = {
 };
 
 export function wsURL() {
-  const url = new URL(API_BASE);
+  // Relative API mode is used behind Nginx; the browser must connect to the
+  // public host, never to Docker's internal service name.
+  const url = new URL(API_BASE || window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = "/ws";
+  url.search = "";
+  url.hash = "";
   return url.toString();
 }
 

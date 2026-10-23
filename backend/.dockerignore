@@ -1,0 +1,5 @@
+.git
+PHASE*_README.md
+infra/
+internal/middleware/infra/
+**/*_test.go

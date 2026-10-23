@@ -1,0 +1,174 @@
+name: nyc-taxi-eta
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+    ports:
+      - "${FRONTEND_PORT:-8081}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - app
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      PORT: "8080"
+      ML_SERVICE_URL: http://ml-service:8000
+      ML_SERVICE_TIMEOUT_MS: "${ML_SERVICE_TIMEOUT_MS:-2000}"
+      ML_SERVICE_RETRIES: "${ML_SERVICE_RETRIES:-3}"
+      PREDICTION_WORKERS: "${PREDICTION_WORKERS:-10}"
+      QUEUE_SIZE: "${QUEUE_SIZE:-100}"
+      REDIS_ADDR: redis:6379
+      REDIS_POOL_SIZE: "${REDIS_POOL_SIZE:-10}"
+      CACHE_TTL_SECONDS: "${CACHE_TTL_SECONDS:-600}"
+      RATE_LIMIT_PER_MINUTE: "${RATE_LIMIT_PER_MINUTE:-100}"
+      RATE_LIMIT_WINDOW_SECONDS: "${RATE_LIMIT_WINDOW_SECONDS:-60}"
+      DRIVER_COUNT: "${DRIVER_COUNT:-20}"
+      SYNC_MODE: "false"
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      ml-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - app
+
+  ml-service:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - app
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - app
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./backend/infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - app
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    environment:
+      GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./backend/infra/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./backend/infra/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - app
+
+  simulator:
+    profiles: ["simulator"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.simulator
+    command:
+      - "--file"
+      - "/data/train.csv"
+      - "--speed"
+      - "${SIMULATOR_SPEED:-50}"
+      - "--limit"
+      - "${SIMULATOR_LIMIT:-500}"
+      - "--target"
+      - "http://backend:8080"
+      - "--workers"
+      - "${SIMULATOR_WORKERS:-20}"
+    volumes:
+      - "${SIMULATOR_DATA_DIR:-./ml-service/data}:/data:ro"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  redis_data:
+  prometheus_data:
+  grafana_data:
