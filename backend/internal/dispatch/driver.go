@@ -103,8 +103,9 @@ func (r *Repository) FindNearestAvailable(ctx context.Context, lat, lon float64)
 			continue
 		}
 		dist := geo.HaversineKm(lat, lon, d.Latitude, d.Longitude)
-		if nearest == nil || dist < nearestDist {
-			nearest = d
+		if nearest == nil || dist < nearestDist || (dist == nearestDist && d.ID < nearest.ID) {
+			copy := *d
+			nearest = &copy
 			nearestDist = dist
 		}
 	}
