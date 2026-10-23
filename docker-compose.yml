@@ -34,6 +34,7 @@ services:
       PREDICTION_WORKERS: "${PREDICTION_WORKERS:-10}"
       QUEUE_SIZE: "${QUEUE_SIZE:-100}"
       REDIS_ADDR: redis:6379
+      DATABASE_URL: ${DATABASE_URL:-postgres://nyctaxi:change-this-local-password@postgres:5432/nyctaxi?sslmode=disable}
       REDIS_POOL_SIZE: "${REDIS_POOL_SIZE:-10}"
       CACHE_TTL_SECONDS: "${CACHE_TTL_SECONDS:-600}"
       RATE_LIMIT_PER_MINUTE: "${RATE_LIMIT_PER_MINUTE:-100}"
@@ -46,6 +47,8 @@ services:
       ml-service:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1"]
@@ -69,6 +72,27 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    restart: unless-stopped
+    networks:
+      - app
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nyctaxi}
+      POSTGRES_USER: ${POSTGRES_USER:-nyctaxi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-local-password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/infra/postgres/001_create_trips.sql:/docker-entrypoint-initdb.d/001_create_trips.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nyctaxi} -d ${POSTGRES_DB:-nyctaxi}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
     networks:
       - app
@@ -169,6 +193,7 @@ networks:
     driver: bridge
 
 volumes:
+  postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:
