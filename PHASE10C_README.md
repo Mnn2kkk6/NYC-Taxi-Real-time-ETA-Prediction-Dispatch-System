@@ -37,6 +37,20 @@ If you changed `POSTGRES_USER` or `POSTGRES_DB` in your `.env`, substitute those
 
 2. Create one trip, save its ID and driver ID, then check `GET /api/v1/trips/{id}`. A successful assignment should have `status = DISPATCHED` and a non-empty `driver_id`.
 
+   ```powershell
+   $body = @{
+     pickup_lat = 40.761
+     pickup_lng = -73.982
+     dropoff_lat = 40.730
+     dropoff_lng = -73.995
+     passenger_count = 2
+   } | ConvertTo-Json
+
+   $trip = Invoke-RestMethod -Method Post -Uri http://localhost:8080/api/v1/trips -ContentType "application/json" -Body $body
+   $trip
+   Invoke-RestMethod "http://localhost:8080/api/v1/trips/$($trip.id)"
+   ```
+
 3. Restart only the backend:
 
    ```powershell
