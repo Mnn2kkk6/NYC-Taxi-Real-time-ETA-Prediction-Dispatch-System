@@ -59,7 +59,31 @@ If you changed `POSTGRES_USER` or `POSTGRES_DB` in your `.env`, substitute those
 
    Re-run `GET /api/v1/drivers`. Existing driver IDs and statuses should remain unchanged; any driver assigned before restart should still be BUSY.
 
-4. Check for duplicate assignments among persisted dispatched trips:
+4. Exercise concurrent trip creation (optional but recommended for Phase 10c):
+
+   ```powershell
+   $payload = @{
+     pickup_lat = 40.761
+     pickup_lng = -73.982
+     dropoff_lat = 40.730
+     dropoff_lng = -73.995
+     passenger_count = 2
+   } | ConvertTo-Json -Compress
+
+   $jobs = 1..25 | ForEach-Object {
+     Start-Job -ArgumentList $payload -ScriptBlock {
+       param($json)
+       Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/trips" -ContentType "application/json" -Body $json |
+         Select-Object id, status, driver_id
+     }
+   }
+   $jobs | Wait-Job | Receive-Job
+   $jobs | Remove-Job
+   ```
+
+   Available drivers should be assigned to distinct trips; requests beyond the remaining fleet capacity should stay `PENDING`.
+
+5. Check for duplicate assignments among persisted dispatched trips:
 
    ```powershell
    docker compose exec postgres psql -U nyctaxi -d nyctaxi -c "SELECT driver_id, COUNT(*) FROM trips WHERE status = 'DISPATCHED' AND driver_id IS NOT NULL GROUP BY driver_id HAVING COUNT(*) > 1;"
@@ -67,7 +91,7 @@ If you changed `POSTGRES_USER` or `POSTGRES_DB` in your `.env`, substitute those
 
    The query should return no rows while the current lifecycle has no completion/release endpoint.
 
-5. Review the backend logs for startup, migration, and dispatch errors:
+6. Review the backend logs for startup, migration, and dispatch errors:
 
    ```powershell
    docker compose logs --tail=100 backend postgres
